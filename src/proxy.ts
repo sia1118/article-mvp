@@ -12,8 +12,8 @@ function basicAuth(request: NextRequest): NextResponse | null {
   const expectedUser = process.env.BASIC_AUTH_USER
   const expectedPass = process.env.BASIC_AUTH_PASS
 
-  // 環境変数が両方未設定の場合はスキップ
-  if (!expectedUser && !expectedPass) return null
+  // 環境変数が未設定の場合はスキップ
+  if (!expectedUser || !expectedPass) return null
 
   const authorization = request.headers.get('authorization') ?? ''
   const match = authorization.match(/^Basic\s+(.+)$/i)
