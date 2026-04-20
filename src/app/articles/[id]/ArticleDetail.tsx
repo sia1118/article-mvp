@@ -84,8 +84,8 @@ export default function ArticleDetail({ article }: Props) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
       setGeneratedImageUrl(json.data.url)
-    } catch {
-      alert('画像の生成に失敗しました。')
+    } catch (e) {
+      alert(`画像の生成に失敗しました。\n${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGeneratingImage(false)
     }

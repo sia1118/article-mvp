@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ data: { url: publicUrl } })
   } catch (error) {
     console.error('[images/generate error]', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const message = error instanceof Error ? error.message : String(error)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
