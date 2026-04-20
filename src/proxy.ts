@@ -14,7 +14,7 @@ function basicAuth(request: NextRequest): NextResponse | null {
   if (authorization) {
     const [scheme, encoded] = authorization.split(' ')
     if (scheme === 'Basic' && encoded) {
-      const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':')
+      const [user, pass] = atob(encoded).split(':')
       if (user === basicUser && pass === basicPass) return null
     }
   }
