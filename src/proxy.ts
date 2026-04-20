@@ -3,7 +3,32 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/register']
 
+function basicAuth(request: NextRequest): NextResponse | null {
+  const basicUser = process.env.BASIC_AUTH_USER
+  const basicPass = process.env.BASIC_AUTH_PASS
+
+  // 環境変数が未設定の場合はベーシック認証をスキップ
+  if (!basicUser || !basicPass) return null
+
+  const authorization = request.headers.get('authorization')
+  if (authorization) {
+    const [scheme, encoded] = authorization.split(' ')
+    if (scheme === 'Basic' && encoded) {
+      const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':')
+      if (user === basicUser && pass === basicPass) return null
+    }
+  }
+
+  return new NextResponse('Authentication required', {
+    status: 401,
+    headers: { 'WWW-Authenticate': 'Basic realm="Secure Area"' },
+  })
+}
+
 export async function proxy(request: NextRequest) {
+  const authResponse = basicAuth(request)
+  if (authResponse) return authResponse
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
