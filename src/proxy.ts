@@ -3,26 +3,37 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/register']
 
+const CHALLENGE = new NextResponse('Authentication required', {
+  status: 401,
+  headers: { 'WWW-Authenticate': 'Basic realm="Secure Area", charset="UTF-8"' },
+})
+
 function basicAuth(request: NextRequest): NextResponse | null {
-  const basicUser = process.env.BASIC_AUTH_USER
-  const basicPass = process.env.BASIC_AUTH_PASS
+  const expectedUser = process.env.BASIC_AUTH_USER
+  const expectedPass = process.env.BASIC_AUTH_PASS
 
-  // 環境変数が未設定の場合はベーシック認証をスキップ
-  if (!basicUser || !basicPass) return null
+  // 環境変数が両方未設定の場合はスキップ
+  if (!expectedUser && !expectedPass) return null
 
-  const authorization = request.headers.get('authorization')
-  if (authorization) {
-    const [scheme, encoded] = authorization.split(' ')
-    if (scheme === 'Basic' && encoded) {
-      const [user, pass] = atob(encoded).split(':')
-      if (user === basicUser && pass === basicPass) return null
-    }
+  const authorization = request.headers.get('authorization') ?? ''
+  const match = authorization.match(/^Basic\s+(.+)$/i)
+  if (!match) return CHALLENGE
+
+  let decoded: string
+  try {
+    decoded = atob(match[1])
+  } catch {
+    return CHALLENGE
   }
 
-  return new NextResponse('Authentication required', {
-    status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="Secure Area"' },
-  })
+  const colonIndex = decoded.indexOf(':')
+  if (colonIndex === -1) return CHALLENGE
+
+  const user = decoded.slice(0, colonIndex)
+  const pass = decoded.slice(colonIndex + 1)
+
+  if (user !== expectedUser || pass !== expectedPass) return CHALLENGE
+  return null
 }
 
 export async function proxy(request: NextRequest) {
