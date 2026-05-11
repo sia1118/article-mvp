@@ -366,9 +366,8 @@ export default function InterviewBot({
         </div>
       )}
 
-      {/* 入力エリア */}
-      {!finished && (
-        <div className="border-t border-gray-200 bg-white px-4 pt-2 pb-3 space-y-2">
+      {/* 入力エリア（完了後も会話を続けられる） */}
+      <div className="border-t border-gray-200 bg-white px-4 pt-2 pb-3 space-y-2">
           {/* TTS コントロール行 */}
           <div className="flex items-center gap-2">
             {/* 音声ON/OFF */}
@@ -461,7 +460,6 @@ export default function InterviewBot({
             </button>
           </div>
         </div>
-      )}
     </div>
   )
 }
