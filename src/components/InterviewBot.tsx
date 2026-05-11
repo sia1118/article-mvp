@@ -7,6 +7,9 @@ import type { Message } from '@/app/api/chat/route'
 
 interface Props {
   onArticleGenerated?: (articleId: string) => void
+  conversationId?: string | null
+  initialMessages?: Message[]
+  initialFinished?: boolean
 }
 
 const FINISH_KEYWORD = '記事を生成する準備ができました'
@@ -14,14 +17,20 @@ const SPEED_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const
 
 type AudioState = 'idle' | 'loading' | 'playing' | 'paused'
 
-export default function InterviewBot({ onArticleGenerated }: Props) {
-  const [messages, setMessages] = useState<Message[]>([])
+export default function InterviewBot({
+  onArticleGenerated,
+  conversationId,
+  initialMessages,
+  initialFinished = false,
+}: Props) {
+  const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [ttsEnabled, setTtsEnabled] = useState(true)
-  const [started, setStarted] = useState(false)
-  const [finished, setFinished] = useState(false)
+  const [started, setStarted] = useState((initialMessages ?? []).length > 0)
+  const [finished, setFinished] = useState(initialFinished)
+  const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
   const [audioState, setAudioState] = useState<AudioState>('idle')
   const [playbackRate, setPlaybackRate] = useState(1.0)
 
@@ -212,6 +221,32 @@ export default function InterviewBot({ onArticleGenerated }: Props) {
       }
 
       if (assistantText.includes(FINISH_KEYWORD)) setFinished(true)
+
+      // DB に保存
+      if (conversationId) {
+        const messagesToSave: { role: string; content: string }[] = []
+        // history が空 = 最初のBotメッセージ（ユーザー発言なし）
+        if (history.length > 0) {
+          const lastUser = history[history.length - 1]
+          const isFirst = isFirstMessageRef.current
+          isFirstMessageRef.current = false
+          messagesToSave.push({ role: lastUser.role, content: lastUser.content })
+          if (isFirst) {
+            await fetch(`/api/conversations/${conversationId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: lastUser.content.slice(0, 25) }),
+            })
+          }
+        }
+        messagesToSave.push({ role: 'assistant', content: assistantText })
+        await fetch(`/api/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: messagesToSave }),
+        })
+      }
+
       playTts(assistantText)
     } catch {
       setMessages((prev) => [
@@ -248,6 +283,13 @@ export default function InterviewBot({ onArticleGenerated }: Props) {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
+      if (conversationId) {
+        await fetch(`/api/conversations/${conversationId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'exported' }),
+        })
+      }
       onArticleGenerated?.(json.data.id)
     } catch {
       alert('記事の生成に失敗しました。')

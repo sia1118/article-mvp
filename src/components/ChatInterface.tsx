@@ -7,15 +7,47 @@ import type { Message } from '@/app/api/chat/route'
 
 interface Props {
   onArticleGenerated?: (articleId: string) => void
+  conversationId?: string | null
+  initialMessages?: Message[]
 }
 
-export default function ChatInterface({ onArticleGenerated }: Props) {
-  const [messages, setMessages] = useState<Message[]>([])
+async function saveMessages(conversationId: string, messages: { role: string; content: string }[]) {
+  await fetch(`/api/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  })
+}
+
+async function updateTitle(conversationId: string, title: string) {
+  await fetch(`/api/conversations/${conversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+async function markExported(conversationId: string) {
+  await fetch(`/api/conversations/${conversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'exported' }),
+  })
+}
+
+export default function ChatInterface({ onArticleGenerated, conversationId, initialMessages }: Props) {
+  const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [generating, setGenerating] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
+
+  useEffect(() => {
+    setMessages(initialMessages ?? [])
+    isFirstMessageRef.current = (initialMessages ?? []).length === 0
+  }, [initialMessages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -30,7 +62,6 @@ export default function ChatInterface({ onArticleGenerated }: Props) {
     setInput('')
     setStreaming(true)
 
-    // アシスタントのプレースホルダーを追加
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
 
     try {
@@ -55,6 +86,21 @@ export default function ChatInterface({ onArticleGenerated }: Props) {
           { role: 'assistant', content: assistantText },
         ])
       }
+
+      // DB に保存
+      if (conversationId) {
+        const isFirst = isFirstMessageRef.current
+        isFirstMessageRef.current = false
+
+        await saveMessages(conversationId, [
+          { role: 'user', content: userMessage.content },
+          { role: 'assistant', content: assistantText },
+        ])
+
+        if (isFirst) {
+          await updateTitle(conversationId, userMessage.content.slice(0, 25))
+        }
+      }
     } catch {
       setMessages((prev) => [
         ...prev.slice(0, -1),
@@ -77,6 +123,9 @@ export default function ChatInterface({ onArticleGenerated }: Props) {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
+
+      if (conversationId) await markExported(conversationId)
+
       onArticleGenerated?.(json.data.id)
     } catch {
       alert('記事の生成に失敗しました。')
@@ -137,15 +186,9 @@ export default function ChatInterface({ onArticleGenerated }: Props) {
             className="w-full flex items-center justify-center gap-2 py-2.5 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {generating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                記事を生成中...
-              </>
+              <><Loader2 className="w-4 h-4 animate-spin" />記事を生成中...</>
             ) : (
-              <>
-                <FileText className="w-4 h-4" />
-                この会話から記事を生成する
-              </>
+              <><FileText className="w-4 h-4" />この会話から記事を生成する</>
             )}
           </button>
         </div>
