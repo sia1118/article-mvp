@@ -16,16 +16,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 })
     }
 
+    const { speed = 1.0 } = body
+    const clampedSpeed = Math.max(0.25, Math.min(4.0, Number(speed)))
+
     const mp3 = await openai.audio.speech.create({
-      model: 'tts-1',
-      voice: 'nova',
-      input: text.slice(0, 4096), // OpenAI の上限
-      speed: 1.0,
+      model: 'tts-1-hd',
+      voice: 'shimmer',
+      input: text.slice(0, 4096),
+      speed: clampedSpeed,
     })
 
-    const buffer = Buffer.from(await mp3.arrayBuffer())
-    return new Response(buffer, {
-      headers: { 'Content-Type': 'audio/mpeg' },
+    return new Response(mp3.body, {
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Cache-Control': 'no-store',
+      },
     })
   } catch (error) {
     console.error('[tts error]', error)
