@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { claude, CLAUDE_MODEL } from '@/lib/claude'
+import { normalizeUrl } from '@/lib/analyticsUtils'
 
 export async function POST(req: Request) {
   try {
@@ -25,26 +26,43 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Analytics record not found' }, { status: 404 })
     }
 
-    // article_id が未紐づけの場合はエラー
-    if (!row.article_id) {
+    // ── 紐づき記事を取得（article_idがあればそのまま、なければURLで再照合）──
+    let article: { id: string; title: string; content_md: string } | null = null
+
+    if (row.article_id) {
+      const { data } = await supabase
+        .from('articles')
+        .select('id, title, content_md')
+        .eq('id', row.article_id)
+        .eq('user_id', user.id)
+        .single()
+      article = data
+    } else {
+      // CSVアップロード後にURLを登録したケース: published_url で再照合
+      const { data: allArticles } = await supabase
+        .from('articles')
+        .select('id, title, content_md, published_url')
+        .eq('user_id', user.id)
+        .not('published_url', 'is', null)
+
+      const normalizedPageUrl = normalizeUrl(row.page_url)
+      const matched = (allArticles ?? []).find(
+        (a) => a.published_url && normalizeUrl(a.published_url) === normalizedPageUrl
+      )
+      if (matched) {
+        article = matched
+        // article_analytics の article_id を更新しておく
+        await supabase
+          .from('article_analytics')
+          .update({ article_id: matched.id })
+          .eq('id', analytics_id)
+      }
+    }
+
+    if (!article) {
       return NextResponse.json(
         { error: '合致する記事がありません。記事詳細ページで公開URLを登録してください。' },
         { status: 422 }
-      )
-    }
-
-    // ── 紐づき記事の本文を取得 ──
-    const { data: article, error: articleError } = await supabase
-      .from('articles')
-      .select('title, content_md')
-      .eq('id', row.article_id)
-      .eq('user_id', user.id)
-      .single()
-
-    if (articleError || !article) {
-      return NextResponse.json(
-        { error: '記事データの取得に失敗しました。' },
-        { status: 404 }
       )
     }
 

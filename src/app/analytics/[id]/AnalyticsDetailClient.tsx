@@ -208,27 +208,24 @@ export default function AnalyticsDetailClient({ row, averages, existingInsight }
               </span>
             )}
           </div>
-          {row.article_id && (
-            <button
-              onClick={handleAnalyze}
-              disabled={analyzing}
-              className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-            >
-              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {analyzing ? '分析中...' : insight ? '再分析' : '分析する'}
-            </button>
-          )}
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+          >
+            {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {analyzing ? '分析中...' : insight ? '再分析' : '分析する'}
+          </button>
         </div>
 
-        {/* 記事未紐づけの場合 */}
-        {!row.article_id && (
-          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        {/* APIから返った合致なしエラー */}
+        {error && error.includes('合致する記事がありません') ? (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-2">
             <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
             <div className="text-sm">
               <p className="font-medium text-amber-800 mb-1">合致する記事がありません</p>
               <p className="text-amber-700">
-                このページURLに紐づく記事が登録されていません。
-                記事詳細ページで公開URLを登録すると、記事本文をもとにした精度の高い分析ができます。
+                このページURL（{row.page_url}）と一致する公開URLが記事に登録されていません。
               </p>
               <Link
                 href="/articles"
@@ -239,9 +236,9 @@ export default function AnalyticsDetailClient({ row, averages, existingInsight }
               </Link>
             </div>
           </div>
-        )}
-
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+        ) : error ? (
+          <p className="text-sm text-red-600 mb-4">{error}</p>
+        ) : null}
 
         {analyzing && (
           <div className="flex items-center gap-3 py-8 justify-center text-gray-400">
@@ -256,7 +253,7 @@ export default function AnalyticsDetailClient({ row, averages, existingInsight }
           </div>
         )}
 
-        {!analyzing && !insight && row.article_id && (
+        {!analyzing && !insight && !error && (
           <p className="text-sm text-gray-400 text-center py-6">
             「分析する」ボタンを押すと、記事本文と解析データをもとにClaudeが改善提案を生成します
           </p>
