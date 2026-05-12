@@ -63,7 +63,18 @@ export async function POST(req: Request) {
       }
     }
 
-    // ────── article_analytics に保存 ──────
+    // ────── 既存レコードを page_url で取得（上書き判定用）──────
+    const { data: existingRecords } = await supabase
+      .from('article_analytics')
+      .select('id, page_url')
+      .eq('user_id', user.id)
+
+    const existingMap = new Map<string, string>() // page_url → id
+    for (const r of existingRecords ?? []) {
+      existingMap.set(r.page_url, r.id)
+    }
+
+    // ────── article_analytics に保存（URL一致は UPDATE、新規は INSERT）──────
     const analyticsRows = analytics.map((a) => ({
       user_id: user.id,
       upload_id: upload.id,
@@ -89,11 +100,26 @@ export async function POST(req: Request) {
       drop_point: a.drop_point,
     }))
 
-    const { error: analyticsError } = await supabase
-      .from('article_analytics')
-      .insert(analyticsRows)
+    const toUpdate = analyticsRows.filter((r) => existingMap.has(r.page_url))
+    const toInsert = analyticsRows.filter((r) => !existingMap.has(r.page_url))
 
-    if (analyticsError) throw analyticsError
+    // 既存レコードを上書き（article_insights のリンクを保持するため id は変えない）
+    await Promise.all(
+      toUpdate.map((r) =>
+        supabase
+          .from('article_analytics')
+          .update(r)
+          .eq('id', existingMap.get(r.page_url)!)
+      )
+    )
+
+    // 新規レコードを挿入
+    if (toInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from('article_analytics')
+        .insert(toInsert)
+      if (insertError) throw insertError
+    }
 
     await supabase
       .from('csv_uploads')
@@ -106,6 +132,8 @@ export async function POST(req: Request) {
       data: {
         upload_id: upload.id,
         pages_processed: analytics.length,
+        pages_updated: toUpdate.length,
+        pages_inserted: toInsert.length,
         articles_matched: matched,
         rows_parsed: rows.length,
       },
