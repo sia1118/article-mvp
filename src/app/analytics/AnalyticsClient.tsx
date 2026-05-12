@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2, BarChart3, ChevronRight } from 'lucide-react'
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, BarChart3, ChevronRight, Trash2 } from 'lucide-react'
 
 interface CsvUpload {
   id: string
@@ -63,6 +63,7 @@ export default function AnalyticsClient({ initialUploads, initialAnalytics }: Pr
   const [analytics, setAnalytics] = useState<AnalyticsRow[]>(initialAnalytics)
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [result, setResult] = useState<UploadResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
@@ -111,6 +112,21 @@ export default function AnalyticsClient({ initialUploads, initialAnalytics }: Pr
     e.target.value = ''
   }
 
+  async function handleDeleteAll() {
+    if (!confirm('全ての解析レコード（アップロード履歴・インサイト含む）を削除しますか？この操作は取り消せません。')) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/analytics/records', { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      setAnalytics([])
+      setUploads([])
+    } catch {
+      alert('削除に失敗しました。')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   async function handlePurposeChange(id: string, purpose: string) {
     setAnalytics((prev) => prev.map((r) => r.id === id ? { ...r, purpose } : r))
     await fetch(`/api/analytics/${id}`, {
@@ -128,13 +144,25 @@ export default function AnalyticsClient({ initialUploads, initialAnalytics }: Pr
           <BarChart3 className="w-6 h-6 text-blue-600" />
           <h1 className="text-xl font-bold text-gray-900">アクセス解析</h1>
         </div>
-        <button
-          onClick={() => setShowUpload((v) => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Upload className="w-4 h-4" />
-          CSVをアップロード
-        </button>
+        <div className="flex items-center gap-2">
+          {analytics.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              全件削除
+            </button>
+          )}
+          <button
+            onClick={() => setShowUpload((v) => !v)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            CSVをアップロード
+          </button>
+        </div>
       </div>
 
       {/* アップロードパネル */}
