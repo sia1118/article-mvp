@@ -88,9 +88,9 @@ export async function POST(req: Request) {
       return `${d}%到達: ${val}%${marker}`
     }).join('\n')
 
-    // 記事全文（上限4000文字）
-    const articleContent = article.content_md.length > 4000
-      ? article.content_md.slice(0, 4000) + '\n\n（以下省略）'
+    // 記事本文（上限2500文字 — 構造分析に十分な量）
+    const articleContent = article.content_md.length > 2500
+      ? article.content_md.slice(0, 2500) + '\n\n（以下省略）'
       : article.content_md
 
     const prompt = `あなたはコンテンツマーケティングの専門家です。
@@ -159,9 +159,13 @@ ${waterfallText}
 
     const response = await claude.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 3000,
+      max_tokens: 6000,
       messages: [{ role: 'user', content: prompt }],
     })
+
+    if (response.stop_reason === 'max_tokens') {
+      console.warn('[analytics/insight] output was truncated by max_tokens')
+    }
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
 
