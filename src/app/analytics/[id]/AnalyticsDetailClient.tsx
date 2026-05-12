@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft, Sparkles, Loader2, MessageSquare, Mic } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, MessageSquare, Mic, AlertCircle, ExternalLink } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
@@ -27,6 +27,7 @@ interface AnalyticsRow {
   scroll_50: number; scroll_60: number; scroll_70: number; scroll_80: number
   scroll_90: number; scroll_100: number
   analyzed_at: string
+  article_id: string | null
   articles: { title: string; content_md: string } | { title: string; content_md: string }[] | null
 }
 
@@ -207,22 +208,45 @@ export default function AnalyticsDetailClient({ row, averages, existingInsight }
               </span>
             )}
           </div>
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-          >
-            {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {analyzing ? '分析中...' : insight ? '再分析' : '分析する'}
-          </button>
+          {row.article_id && (
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {analyzing ? '分析中...' : insight ? '再分析' : '分析する'}
+            </button>
+          )}
         </div>
+
+        {/* 記事未紐づけの場合 */}
+        {!row.article_id && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-amber-800 mb-1">合致する記事がありません</p>
+              <p className="text-amber-700">
+                このページURLに紐づく記事が登録されていません。
+                記事詳細ページで公開URLを登録すると、記事本文をもとにした精度の高い分析ができます。
+              </p>
+              <Link
+                href="/articles"
+                className="inline-flex items-center gap-1 mt-2 text-xs text-amber-700 underline hover:text-amber-900"
+              >
+                <ExternalLink className="w-3 h-3" />
+                記事一覧で公開URLを登録する
+              </Link>
+            </div>
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
         {analyzing && (
           <div className="flex items-center gap-3 py-8 justify-center text-gray-400">
             <Loader2 className="w-5 h-5 animate-spin" />
-            <span className="text-sm">Claudeが解析データを分析しています...</span>
+            <span className="text-sm">記事本文と解析データを照合しています...</span>
           </div>
         )}
 
@@ -232,9 +256,9 @@ export default function AnalyticsDetailClient({ row, averages, existingInsight }
           </div>
         )}
 
-        {!analyzing && !insight && (
+        {!analyzing && !insight && row.article_id && (
           <p className="text-sm text-gray-400 text-center py-6">
-            「分析する」ボタンを押すと、Claudeが解析データを元に改善提案を生成します
+            「分析する」ボタンを押すと、記事本文と解析データをもとにClaudeが改善提案を生成します
           </p>
         )}
       </div>
