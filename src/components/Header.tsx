@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { LogOut, FileText } from 'lucide-react'
+import { LogOut, FileText, BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function Header() {
@@ -35,6 +35,10 @@ export default function Header() {
           </Link>
           <Link href="/articles" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
             記事一覧
+          </Link>
+          <Link href="/analytics" className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            <BarChart3 className="w-3.5 h-3.5" />
+            解析
           </Link>
           <button
             onClick={handleLogout}

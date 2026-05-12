@@ -13,14 +13,19 @@ export async function PATCH(req: Request, { params }: Props) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
-    const { title, content_md } = body
+    const { title, content_md, published_url } = body
     if (!title || !content_md) {
       return NextResponse.json({ error: 'title and content_md are required' }, { status: 400 })
     }
 
+    const updateData: Record<string, string> = { title, content_md }
+    if (published_url !== undefined) {
+      updateData.published_url = published_url
+    }
+
     const { data, error } = await supabase
       .from('articles')
-      .update({ title, content_md })
+      .update(updateData)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()

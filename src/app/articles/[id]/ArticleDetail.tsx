@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft, Copy, Check, Pencil, Trash2, Save, X, ImagePlus, Loader2 } from 'lucide-react'
+import { ArrowLeft, Copy, Check, Pencil, Trash2, Save, X, ImagePlus, Loader2, Link2 } from 'lucide-react'
 
 interface Article {
   id: string
@@ -13,6 +13,7 @@ interface Article {
   content_md: string
   status: string
   created_at: string
+  published_url?: string | null
 }
 
 interface Props {
@@ -27,6 +28,9 @@ export default function ArticleDetail({ article }: Props) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [publishedUrl, setPublishedUrl] = useState(article.published_url ?? '')
+  const [savingUrl, setSavingUrl] = useState(false)
+  const [urlSaved, setUrlSaved] = useState(false)
 
   // 画像生成
   const [imagePrompt, setImagePrompt] = useState('')
@@ -62,6 +66,24 @@ export default function ArticleDetail({ article }: Props) {
     } catch {
       alert('削除に失敗しました。')
       setDeleting(false)
+    }
+  }
+
+  async function handleSaveUrl() {
+    setSavingUrl(true)
+    try {
+      const res = await fetch(`/api/articles/${article.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content_md: contentMd, published_url: publishedUrl }),
+      })
+      if (!res.ok) throw new Error()
+      setUrlSaved(true)
+      setTimeout(() => setUrlSaved(false), 2000)
+    } catch {
+      alert('URLの保存に失敗しました。')
+    } finally {
+      setSavingUrl(false)
     }
   }
 
@@ -201,6 +223,32 @@ export default function ArticleDetail({ article }: Props) {
           )}
         </div>
       )}
+
+      {/* 公開URL登録 */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Link2 className="w-4 h-4 text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">公開URL（アクセス解析の照合用）</span>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={publishedUrl}
+            onChange={(e) => setPublishedUrl(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSaveUrl()}
+            placeholder="https://example.com/article/..."
+            className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+          />
+          <button
+            onClick={handleSaveUrl}
+            disabled={savingUrl}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {savingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : urlSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {urlSaved ? '保存済み' : '保存'}
+          </button>
+        </div>
+      </div>
 
       {/* 記事本体 */}
       <div className="bg-white rounded-2xl border border-gray-200 p-8">
