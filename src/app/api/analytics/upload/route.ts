@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import {
-  parseCsv,
-  aggregateByPage,
-  calculateMetrics,
-  normalizeUrl,
-} from '@/lib/analyticsUtils'
+import { parseCsv, calculateMetrics, normalizeUrl } from '@/lib/analyticsUtils'
 
 export async function POST(req: Request) {
   try {
@@ -16,7 +11,7 @@ export async function POST(req: Request) {
     // ────── ファイル受信 ──────
     const formData = await req.formData()
     const file = formData.get('file') as File | null
-    if (!file || file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+    if (!file || (file.type !== 'text/csv' && !file.name.endsWith('.csv'))) {
       return NextResponse.json({ error: 'CSVファイルを選択してください' }, { status: 400 })
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -25,18 +20,20 @@ export async function POST(req: Request) {
 
     const csvText = await file.text()
 
-    // ────── CSVパース & 集計 ──────
+    // ────── CSVパース ──────
+    // ページ行形式: 1行 = 1ページ（sessions, engaged_sessions, avg_engagement_time, scroll_10〜100 等）
     const rows = parseCsv(csvText)
     if (rows.length === 0) {
-      return NextResponse.json({ error: 'CSVが空またはフォーマットが正しくありません' }, { status: 400 })
+      return NextResponse.json({
+        error: 'CSVが空またはフォーマットが正しくありません。page_url と sessions 列が必要です。',
+      }, { status: 400 })
     }
 
-    const pages = aggregateByPage(rows)
-    if (pages.length === 0) {
-      return NextResponse.json({ error: 'session_startイベントが見つかりませんでした' }, { status: 400 })
+    // ────── 指標計算 ──────
+    const analytics = calculateMetrics(rows)
+    if (analytics.length === 0) {
+      return NextResponse.json({ error: 'セッション数が0のページのみです' }, { status: 400 })
     }
-
-    const analytics = calculateMetrics(pages)
 
     // ────── csv_uploads に記録 ──────
     const { data: upload, error: uploadError } = await supabase
@@ -98,7 +95,6 @@ export async function POST(req: Request) {
 
     if (analyticsError) throw analyticsError
 
-    // アップロードを完了に更新
     await supabase
       .from('csv_uploads')
       .update({ status: 'done' })
