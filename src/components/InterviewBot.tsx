@@ -10,6 +10,7 @@ interface Props {
   conversationId?: string | null
   initialMessages?: Message[]
   initialFinished?: boolean
+  seedMessage?: string
 }
 
 const FINISH_KEYWORD = '記事を生成する準備ができました'
@@ -22,6 +23,7 @@ export default function InterviewBot({
   conversationId,
   initialMessages,
   initialFinished = false,
+  seedMessage,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
   const [input, setInput] = useState('')
@@ -31,6 +33,7 @@ export default function InterviewBot({
   const [started, setStarted] = useState((initialMessages ?? []).length > 0)
   const [finished, setFinished] = useState(initialFinished)
   const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
+  const seedSentRef = useRef(false)
   const [audioState, setAudioState] = useState<AudioState>('idle')
   const [playbackRate, setPlaybackRate] = useState(1.0)
 
@@ -58,6 +61,19 @@ export default function InterviewBot({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 企画提案からのseedを自動送信
+  useEffect(() => {
+    if (seedMessage && !seedSentRef.current && conversationId && !started) {
+      seedSentRef.current = true
+      setInput(seedMessage)
+      // 少し待ってからスタート画面をスキップして送信
+      setTimeout(() => {
+        setStarted(true)
+      }, 100)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedMessage, conversationId])
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {

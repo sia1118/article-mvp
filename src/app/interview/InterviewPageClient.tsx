@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import InterviewBot from '@/components/InterviewBot'
 import SessionSelector, { type Session } from '@/components/SessionSelector'
@@ -16,8 +16,25 @@ export default function InterviewPageClient() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [initialMessages, setInitialMessages] = useState<Message[]>([])
   const [initialFinished, setInitialFinished] = useState(false)
+  const [seedMessage, setSeedMessage] = useState<string | undefined>(undefined)
 
-  async function handleNew() {
+  // 企画提案からの遷移時にseedを読み取る
+  useEffect(() => {
+    const raw = sessionStorage.getItem('proposal_seed')
+    if (raw) {
+      try {
+        const { seed, mode } = JSON.parse(raw)
+        if (mode === 'interview') {
+          sessionStorage.removeItem('proposal_seed')
+          handleNewWithSeed(seed)
+        }
+      } catch {
+        sessionStorage.removeItem('proposal_seed')
+      }
+    }
+  }, [])
+
+  async function handleNewWithSeed(seed?: string) {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -27,7 +44,12 @@ export default function InterviewPageClient() {
     setConversationId(json.data.id)
     setInitialMessages([])
     setInitialFinished(false)
+    setSeedMessage(seed)
     setView('interview')
+  }
+
+  async function handleNew() {
+    await handleNewWithSeed(undefined)
   }
 
   async function handleResume(session: Session) {
@@ -45,6 +67,7 @@ export default function InterviewPageClient() {
     setConversationId(session.id)
     setInitialMessages(msgs)
     setInitialFinished(finished)
+    setSeedMessage(undefined)
     setView('interview')
   }
 
@@ -53,6 +76,7 @@ export default function InterviewPageClient() {
     setConversationId(null)
     setInitialMessages([])
     setInitialFinished(false)
+    setSeedMessage(undefined)
   }
 
   if (view === 'selector') {
@@ -86,6 +110,7 @@ export default function InterviewPageClient() {
         conversationId={conversationId}
         initialMessages={initialMessages}
         initialFinished={initialFinished}
+        seedMessage={seedMessage}
       />
     </div>
   )

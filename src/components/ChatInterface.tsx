@@ -9,6 +9,7 @@ interface Props {
   onArticleGenerated?: (articleId: string) => void
   conversationId?: string | null
   initialMessages?: Message[]
+  seedMessage?: string
 }
 
 async function saveMessages(conversationId: string, messages: { role: string; content: string }[]) {
@@ -35,7 +36,7 @@ async function markExported(conversationId: string) {
   })
 }
 
-export default function ChatInterface({ onArticleGenerated, conversationId, initialMessages }: Props) {
+export default function ChatInterface({ onArticleGenerated, conversationId, initialMessages, seedMessage }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages ?? [])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -43,11 +44,20 @@ export default function ChatInterface({ onArticleGenerated, conversationId, init
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
+  const seedSentRef = useRef(false)
 
   useEffect(() => {
     setMessages(initialMessages ?? [])
     isFirstMessageRef.current = (initialMessages ?? []).length === 0
   }, [initialMessages])
+
+  // 企画提案からのseedを自動送信
+  useEffect(() => {
+    if (seedMessage && !seedSentRef.current && conversationId) {
+      seedSentRef.current = true
+      sendMessage(seedMessage)
+    }
+  }, [seedMessage, conversationId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ChatInterface from '@/components/ChatInterface'
 import SessionSelector, { type Session } from '@/components/SessionSelector'
@@ -13,8 +13,25 @@ export default function ChatPageClient() {
   const [view, setView] = useState<ViewState>('selector')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [initialMessages, setInitialMessages] = useState<Message[]>([])
+  const [seedMessage, setSeedMessage] = useState<string | undefined>(undefined)
 
-  async function handleNew() {
+  // 企画提案からの遷移時にseedを読み取る
+  useEffect(() => {
+    const raw = sessionStorage.getItem('proposal_seed')
+    if (raw) {
+      try {
+        const { seed, mode } = JSON.parse(raw)
+        if (mode === 'chat') {
+          sessionStorage.removeItem('proposal_seed')
+          handleNewWithSeed(seed)
+        }
+      } catch {
+        sessionStorage.removeItem('proposal_seed')
+      }
+    }
+  }, [])
+
+  async function handleNewWithSeed(seed?: string) {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -23,7 +40,12 @@ export default function ChatPageClient() {
     const json = await res.json()
     setConversationId(json.data.id)
     setInitialMessages([])
+    setSeedMessage(seed)
     setView('chat')
+  }
+
+  async function handleNew() {
+    await handleNewWithSeed(undefined)
   }
 
   async function handleResume(session: Session) {
@@ -36,6 +58,7 @@ export default function ChatPageClient() {
         content: m.content,
       }))
     )
+    setSeedMessage(undefined)
     setView('chat')
   }
 
@@ -43,6 +66,7 @@ export default function ChatPageClient() {
     setView('selector')
     setConversationId(null)
     setInitialMessages([])
+    setSeedMessage(undefined)
   }
 
   if (view === 'selector') {
@@ -75,6 +99,7 @@ export default function ChatPageClient() {
         onArticleGenerated={(id) => router.push(`/articles/${id}`)}
         conversationId={conversationId}
         initialMessages={initialMessages}
+        seedMessage={seedMessage}
       />
     </div>
   )
