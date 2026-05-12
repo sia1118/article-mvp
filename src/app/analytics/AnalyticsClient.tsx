@@ -73,6 +73,19 @@ interface ScatterPoint {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function AreaLabel({ text, color, align, vAlign, viewBox }: { text: string; color: string; align: 'left' | 'right'; vAlign: 'top' | 'bottom'; viewBox?: any }) {
+  if (!viewBox) return null
+  const px = align === 'left' ? viewBox.x + 8 : viewBox.x + viewBox.width - 8
+  const py = vAlign === 'top' ? viewBox.y + 15 : viewBox.y + viewBox.height - 22
+  const anchor = align === 'left' ? 'start' : 'end'
+  return (
+    <text x={px} y={py} fill={color} fontSize={10} fontWeight={600} textAnchor={anchor}>
+      {text}
+    </text>
+  )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d: ScatterPoint = payload[0].payload
@@ -89,14 +102,13 @@ function CustomTooltip({ active, payload }: any) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomDot(props: any) {
   const { cx, cy, payload, onClick } = props
+  const raw: string = payload.title ?? ''
+  const label = raw.length > 9 ? raw.slice(0, 9) + '…' : raw
   return (
-    <circle
-      cx={cx} cy={cy} r={6}
-      fill="#3b82f6" fillOpacity={0.8}
-      stroke="#fff" strokeWidth={1.5}
-      style={{ cursor: 'pointer' }}
-      onClick={() => onClick?.(payload)}
-    />
+    <g style={{ cursor: 'pointer' }} onClick={() => onClick?.(payload)}>
+      <circle cx={cx} cy={cy} r={6} fill="#3b82f6" fillOpacity={0.8} stroke="#fff" strokeWidth={1.5} />
+      <text x={cx} y={cy + 19} textAnchor="middle" fontSize={9} fill="#4b5563">{label}</text>
+    </g>
   )
 }
 
@@ -121,53 +133,47 @@ function QuadrantChart({ analytics }: { analytics: AnalyticsRow[] }) {
   const xMax = Math.max(200, ...points.map((p) => p.x)) * 1.1
   const yMax = Math.max(10, ...points.map((p) => p.y)) * 1.15
 
-  const LABELS = [
-    { x: avgX / 2,           y: yMax * 0.88, text: '⚠️ 集客OK・改善余地あり', color: '#b45309' },
-    { x: (avgX + xMax) / 2,  y: yMax * 0.88, text: '🌟 人気×共鳴 (スター)',   color: '#15803d' },
-    { x: avgX / 2,           y: yMax * 0.08, text: '🔴 要強化',               color: '#b91c1c' },
-    { x: (avgX + xMax) / 2,  y: yMax * 0.08, text: '💎 隠れた良記事',         color: '#1d4ed8' },
-  ]
-
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
       <h2 className="text-sm font-semibold text-gray-900 mb-1">記事マッピング</h2>
       <p className="text-xs text-gray-400 mb-4">
         横軸: エンゲージメント（キャッチ強度・本文共鳴度の平均）　縦軸: セッション数
-        <span className="text-gray-500">分割線 = 平均値</span>
+        <span className="text-gray-500 ml-1">分割線 = 平均値</span>
       </p>
-      <ResponsiveContainer width="100%" height={360}>
-        <ScatterChart margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
-          {/* 象限の背景色 */}
-          <ReferenceArea x1={0}    x2={avgX} y1={avgY} y2={yMax} fill="#fef3c7" fillOpacity={0.5} />
-          <ReferenceArea x1={avgX} x2={xMax} y1={avgY} y2={yMax} fill="#dcfce7" fillOpacity={0.5} />
-          <ReferenceArea x1={0}    x2={avgX} y1={0}    y2={avgY} fill="#fee2e2" fillOpacity={0.4} />
-          <ReferenceArea x1={avgX} x2={xMax} y1={0}    y2={avgY} fill="#dbeafe" fillOpacity={0.4} />
+      <ResponsiveContainer width="100%" height={420}>
+        <ScatterChart margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
+          {/* 象限の背景色 + ラベル */}
+          <ReferenceArea x1={0} x2={avgX} y1={avgY} y2={yMax} fill="#fef3c7" fillOpacity={0.5}
+            label={<AreaLabel text="集客OK・改善余地あり" color="#b45309" align="left" vAlign="top" />} />
+          <ReferenceArea x1={avgX} x2={xMax} y1={avgY} y2={yMax} fill="#dcfce7" fillOpacity={0.5}
+            label={<AreaLabel text="人気×共鳴 (スター)" color="#15803d" align="right" vAlign="top" />} />
+          <ReferenceArea x1={0} x2={avgX} y1={0} y2={avgY} fill="#fee2e2" fillOpacity={0.4}
+            label={<AreaLabel text="要強化" color="#b91c1c" align="left" vAlign="bottom" />} />
+          <ReferenceArea x1={avgX} x2={xMax} y1={0} y2={avgY} fill="#dbeafe" fillOpacity={0.4}
+            label={<AreaLabel text="隠れた良記事" color="#1d4ed8" align="right" vAlign="bottom" />} />
 
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis
             type="number" dataKey="x"
             domain={[0, xMax]}
-            label={{ value: 'エンゲージメントスコア', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#6b7280' }}
+            tickFormatter={(v: number) => String(Math.round(v))}
+            label={{ value: 'エンゲージメントスコア', position: 'insideBottom', offset: -30, fontSize: 11, fill: '#6b7280' }}
             tick={{ fontSize: 11 }}
           />
           <YAxis
             type="number" dataKey="y"
             domain={[0, yMax]}
+            tickFormatter={(v: number) => String(Math.round(v))}
             label={{ value: 'セッション数', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#6b7280' }}
             tick={{ fontSize: 11 }}
           />
           <Tooltip content={<CustomTooltip />} />
 
           {/* 分割線（平均値） */}
-          <ReferenceLine x={avgX} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `avg ${avgX}`, fontSize: 10, fill: '#94a3b8' }} />
-          <ReferenceLine y={avgY} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `avg ${avgY.toLocaleString()}`, fontSize: 10, fill: '#94a3b8', position: 'insideTopRight' }} />
-
-          {/* 象限ラベル */}
-          {LABELS.map((l, i) => (
-            <ReferenceLine key={i} x={l.x} stroke="transparent"
-              label={{ value: l.text, position: 'center', fontSize: 10, fill: l.color, fontWeight: 600 }}
-            />
-          ))}
+          <ReferenceLine x={avgX} stroke="#94a3b8" strokeDasharray="4 4"
+            label={{ value: `avg ${avgX}`, position: 'insideBottomRight', fontSize: 10, fill: '#94a3b8' }} />
+          <ReferenceLine y={avgY} stroke="#94a3b8" strokeDasharray="4 4"
+            label={{ value: `avg ${avgY.toLocaleString()}`, position: 'insideTopLeft', fontSize: 10, fill: '#94a3b8' }} />
 
           <Scatter
             data={points}
