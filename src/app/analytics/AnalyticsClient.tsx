@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -73,14 +73,15 @@ interface ScatterPoint {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function AreaLabel({ text, color, align, vAlign, viewBox }: { text: string; color: string; align: 'left' | 'right'; vAlign: 'top' | 'bottom'; viewBox?: any }) {
+function AreaLabel({ text, shortText, color, align, vAlign, viewBox }: { text: string; shortText?: string; color: string; align: 'left' | 'right'; vAlign: 'top' | 'bottom'; viewBox?: any }) {
   if (!viewBox) return null
-  const px = align === 'left' ? viewBox.x + 8 : viewBox.x + viewBox.width - 8
-  const py = vAlign === 'top' ? viewBox.y + 15 : viewBox.y + viewBox.height - 22
+  const displayText = viewBox.width < 110 ? (shortText ?? text) : text
+  const px = align === 'left' ? viewBox.x + 6 : viewBox.x + viewBox.width - 6
+  const py = vAlign === 'top' ? viewBox.y + 14 : viewBox.y + viewBox.height - 18
   const anchor = align === 'left' ? 'start' : 'end'
   return (
-    <text x={px} y={py} fill={color} fontSize={10} fontWeight={600} textAnchor={anchor}>
-      {text}
+    <text x={px} y={py} fill={color} fontSize={9} fontWeight={600} textAnchor={anchor}>
+      {displayText}
     </text>
   )
 }
@@ -101,19 +102,27 @@ function CustomTooltip({ active, payload }: any) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomDot(props: any) {
-  const { cx, cy, payload, onClick } = props
+  const { cx, cy, payload, onClick, maxTitleLen = 9, dotR = 6 } = props
   const raw: string = payload.title ?? ''
-  const label = raw.length > 9 ? raw.slice(0, 9) + '…' : raw
+  const label = raw.length > maxTitleLen ? raw.slice(0, maxTitleLen) + '…' : raw
   return (
     <g style={{ cursor: 'pointer' }} onClick={() => onClick?.(payload)}>
-      <circle cx={cx} cy={cy} r={6} fill="#3b82f6" fillOpacity={0.8} stroke="#fff" strokeWidth={1.5} />
-      <text x={cx} y={cy + 19} textAnchor="middle" fontSize={9} fill="#4b5563">{label}</text>
+      <circle cx={cx} cy={cy} r={dotR} fill="#3b82f6" fillOpacity={0.8} stroke="#fff" strokeWidth={1.5} />
+      <text x={cx} y={cy + dotR + 12} textAnchor="middle" fontSize={8} fill="#4b5563">{label}</text>
     </g>
   )
 }
 
 function QuadrantChart({ analytics }: { analytics: AnalyticsRow[] }) {
   const router = useRouter()
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   const points: ScatterPoint[] = analytics.map((row) => {
     const articlesData = Array.isArray(row.articles) ? row.articles[0] : row.articles
@@ -133,56 +142,71 @@ function QuadrantChart({ analytics }: { analytics: AnalyticsRow[] }) {
   const xMax = Math.max(200, ...points.map((p) => p.x)) * 1.1
   const yMax = Math.max(10, ...points.map((p) => p.y)) * 1.15
 
+  const chartHeight = isMobile ? 260 : 420
+  const chartMargins = isMobile
+    ? { top: 10, right: 10, left: -8, bottom: 36 }
+    : { top: 20, right: 40, left: 10, bottom: 50 }
+  const tickFont = isMobile ? 9 : 11
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-      <h2 className="text-sm font-semibold text-gray-900 mb-1">記事マッピング</h2>
-      <p className="text-xs text-gray-400 mb-4">
-        横軸: エンゲージメント（キャッチ強度・本文共鳴度の平均）　縦軸: セッション数
-        <span className="text-gray-500 ml-1">分割線 = 平均値</span>
+    <div className="bg-white rounded-2xl border border-gray-200 p-3 sm:p-6 mb-6">
+      <h2 className="text-sm font-semibold text-gray-900 mb-0.5">記事マッピング</h2>
+      <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+        <span className="hidden sm:inline">横軸: エンゲージメント（キャッチ強度・本文共鳴度の平均）　縦軸: セッション数　</span>
+        <span className="sm:hidden">横軸: エンゲージ　縦軸: セッション数　</span>
+        <span className="text-gray-500">分割線 = 平均値</span>
       </p>
-      <ResponsiveContainer width="100%" height={420}>
-        <ScatterChart margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
-          {/* 象限の背景色 + ラベル */}
-          <ReferenceArea x1={0} x2={avgX} y1={avgY} y2={yMax} fill="#fef3c7" fillOpacity={0.5}
-            label={<AreaLabel text="集客OK・改善余地あり" color="#b45309" align="left" vAlign="top" />} />
-          <ReferenceArea x1={avgX} x2={xMax} y1={avgY} y2={yMax} fill="#dcfce7" fillOpacity={0.5}
-            label={<AreaLabel text="人気×共鳴 (スター)" color="#15803d" align="right" vAlign="top" />} />
-          <ReferenceArea x1={0} x2={avgX} y1={0} y2={avgY} fill="#fee2e2" fillOpacity={0.4}
-            label={<AreaLabel text="要強化" color="#b91c1c" align="left" vAlign="bottom" />} />
-          <ReferenceArea x1={avgX} x2={xMax} y1={0} y2={avgY} fill="#dbeafe" fillOpacity={0.4}
-            label={<AreaLabel text="隠れた良記事" color="#1d4ed8" align="right" vAlign="bottom" />} />
+      <div style={{ height: chartHeight }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={chartMargins}>
+            {/* 象限の背景色 + ラベル */}
+            <ReferenceArea x1={0} x2={avgX} y1={avgY} y2={yMax} fill="#fef3c7" fillOpacity={0.5}
+              label={<AreaLabel text="集客OK・改善余地あり" shortText="集客OK" color="#b45309" align="left" vAlign="top" />} />
+            <ReferenceArea x1={avgX} x2={xMax} y1={avgY} y2={yMax} fill="#dcfce7" fillOpacity={0.5}
+              label={<AreaLabel text="人気×共鳴 (スター)" shortText="スター" color="#15803d" align="right" vAlign="top" />} />
+            <ReferenceArea x1={0} x2={avgX} y1={0} y2={avgY} fill="#fee2e2" fillOpacity={0.4}
+              label={<AreaLabel text="要強化" color="#b91c1c" align="left" vAlign="bottom" />} />
+            <ReferenceArea x1={avgX} x2={xMax} y1={0} y2={avgY} fill="#dbeafe" fillOpacity={0.4}
+              label={<AreaLabel text="隠れた良記事" shortText="良記事" color="#1d4ed8" align="right" vAlign="bottom" />} />
 
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis
-            type="number" dataKey="x"
-            domain={[0, xMax]}
-            tickFormatter={(v: number) => String(Math.round(v))}
-            label={{ value: 'エンゲージメントスコア', position: 'insideBottom', offset: -30, fontSize: 11, fill: '#6b7280' }}
-            tick={{ fontSize: 11 }}
-          />
-          <YAxis
-            type="number" dataKey="y"
-            domain={[0, yMax]}
-            tickFormatter={(v: number) => String(Math.round(v))}
-            label={{ value: 'セッション数', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#6b7280' }}
-            tick={{ fontSize: 11 }}
-          />
-          <Tooltip content={<CustomTooltip />} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis
+              type="number" dataKey="x"
+              domain={[0, xMax]}
+              tickFormatter={(v: number) => String(Math.round(v))}
+              label={isMobile ? undefined : { value: 'エンゲージメントスコア', position: 'insideBottom', offset: -30, fontSize: 11, fill: '#6b7280' }}
+              tick={{ fontSize: tickFont }}
+            />
+            <YAxis
+              type="number" dataKey="y"
+              domain={[0, yMax]}
+              tickFormatter={(v: number) => String(Math.round(v))}
+              label={isMobile ? undefined : { value: 'セッション数', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#6b7280' }}
+              tick={{ fontSize: tickFont }}
+              width={isMobile ? 28 : 40}
+            />
+            <Tooltip content={<CustomTooltip />} />
 
-          {/* 分割線（平均値） */}
-          <ReferenceLine x={avgX} stroke="#94a3b8" strokeDasharray="4 4"
-            label={{ value: `avg ${avgX}`, position: 'insideBottomRight', fontSize: 10, fill: '#94a3b8' }} />
-          <ReferenceLine y={avgY} stroke="#94a3b8" strokeDasharray="4 4"
-            label={{ value: `avg ${avgY.toLocaleString()}`, position: 'insideTopLeft', fontSize: 10, fill: '#94a3b8' }} />
+            {/* 分割線（平均値） */}
+            <ReferenceLine x={avgX} stroke="#94a3b8" strokeDasharray="4 4"
+              label={{ value: `avg ${avgX}`, position: 'insideBottomRight', fontSize: 9, fill: '#94a3b8' }} />
+            <ReferenceLine y={avgY} stroke="#94a3b8" strokeDasharray="4 4"
+              label={{ value: `avg ${avgY.toLocaleString()}`, position: 'insideTopLeft', fontSize: 9, fill: '#94a3b8' }} />
 
-          <Scatter
-            data={points}
-            shape={(props: object) => (
-              <CustomDot {...props} onClick={(p: ScatterPoint) => router.push(`/analytics/${p.id}`)} />
-            )}
-          />
-        </ScatterChart>
-      </ResponsiveContainer>
+            <Scatter
+              data={points}
+              shape={(props: object) => (
+                <CustomDot
+                  {...props}
+                  onClick={(p: ScatterPoint) => router.push(`/analytics/${p.id}`)}
+                  maxTitleLen={isMobile ? 5 : 9}
+                  dotR={isMobile ? 5 : 6}
+                />
+              )}
+            />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }
@@ -259,25 +283,26 @@ export default function AnalyticsClient({ initialUploads, initialAnalytics }: Pr
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-10">
+    <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-10">
       {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="w-6 h-6 text-blue-600" />
-          <h1 className="text-xl font-bold text-gray-900">アクセス解析</h1>
+      <div className="flex items-center justify-between mb-5 sm:mb-8">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">アクセス解析</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {analytics.length > 0 && (
             <button onClick={handleDeleteAll} disabled={deleting}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-              全件削除
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+              <span className="hidden sm:inline">全件削除</span>
             </button>
           )}
           <button onClick={() => setShowUpload((v) => !v)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-            <Upload className="w-4 h-4" />
-            CSVをアップロード
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+            <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="sm:hidden">CSV</span>
+            <span className="hidden sm:inline">CSVをアップロード</span>
           </button>
         </div>
       </div>

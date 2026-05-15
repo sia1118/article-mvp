@@ -656,7 +656,7 @@ export default function InterviewBot({
           {/* ハンズフリートグル */}
           <button
             onClick={toggleHandsFreeMode}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
               handsFreeMode
                 ? 'bg-blue-600 text-white border-blue-600'
                 : 'bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600'
@@ -664,18 +664,18 @@ export default function InterviewBot({
             title="ハンズフリーモード：BotのTTS終了後に自動でマイクON→沈黙検出で自動送信"
           >
             <Mic className="w-3.5 h-3.5" />
-            ハンズフリー
+            <span className="hidden sm:inline">ハンズフリー</span>
           </button>
 
           {/* 再生速度 */}
           {ttsEnabled && (
-            <div className="flex items-center gap-1 ml-auto">
-              <span className="text-xs text-gray-400 mr-0.5">速度</span>
+            <div className="flex items-center gap-0.5 sm:gap-1 ml-auto">
+              <span className="text-xs text-gray-400 mr-0.5 hidden sm:inline">速度</span>
               {SPEED_OPTIONS.map((rate) => (
                 <button
                   key={rate}
                   onClick={() => setPlaybackRate(rate)}
-                  className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
+                  className={`px-1.5 sm:px-2 py-0.5 text-xs rounded-md transition-colors ${
                     playbackRate === rate
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
