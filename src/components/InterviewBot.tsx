@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Volume2, VolumeX, FileText, Pause, Play, Square } from 'lucide-react'
+import { Send, Loader2, Volume2, VolumeX, FileText, Pause, Play, Square, Mic } from 'lucide-react'
 import VoiceRecorder from '@/components/VoiceRecorder'
 import type { Message } from '@/app/api/chat/route'
 
@@ -17,6 +17,204 @@ const FINISH_KEYWORD = '記事を生成する準備ができました'
 const SPEED_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const
 
 type AudioState = 'idle' | 'loading' | 'playing' | 'paused'
+type HFPhase = 'waiting' | 'listening' | 'transcribing'
+
+// ────────────────────────────────────────────
+// ハンズフリー録音コンポーネント
+// ────────────────────────────────────────────
+
+function getAudioMimeType(): string {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4']
+  for (const t of types) if (MediaRecorder.isTypeSupported(t)) return t
+  return ''
+}
+
+interface HandsFreeRecorderProps {
+  active: boolean
+  disabled: boolean
+  onTranscribed: (text: string) => void
+}
+
+function HandsFreeRecorder({ active, disabled, onTranscribed }: HandsFreeRecorderProps) {
+  const [phase, setPhase] = useState<HFPhase>('waiting')
+  const [audioLevel, setAudioLevel] = useState(0)
+  const [silenceProgress, setSilenceProgress] = useState(0)
+
+  const streamRef = useRef<MediaStream | null>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const hasSpokenRef = useRef(false)
+  const silenceStartRef = useRef<number | null>(null)
+  const startTimeRef = useRef(0)
+  const phaseRef = useRef<HFPhase>('waiting')
+
+  const SILENCE_THRESHOLD = 12   // RMS値（0-255）これ以下を無音とみなす
+  const SILENCE_DURATION = 1800  // ms: 発話後この時間無音が続いたら自動停止
+  const MIN_BEFORE_VAD = 800     // ms: 録音開始後この時間はVADを無効にする
+
+  useEffect(() => { phaseRef.current = phase }, [phase])
+  useEffect(() => () => cleanupMedia(), [])
+
+  useEffect(() => {
+    if (active && !disabled && phaseRef.current === 'waiting') {
+      startListening()
+    } else if (!active && phaseRef.current === 'listening') {
+      cancelListening()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, disabled])
+
+  function cleanupMedia() {
+    if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null }
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    audioCtxRef.current?.close().catch(() => {})
+    streamRef.current = null
+    audioCtxRef.current = null
+    hasSpokenRef.current = false
+    silenceStartRef.current = null
+    setAudioLevel(0)
+    setSilenceProgress(0)
+  }
+
+  function cancelListening() {
+    cleanupMedia()
+    recorderRef.current = null
+    chunksRef.current = []
+    setPhase('waiting')
+  }
+
+  async function startListening() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const audioCtx = new AudioContext()
+      audioCtxRef.current = audioCtx
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 256
+      audioCtx.createMediaStreamSource(stream).connect(analyser)
+
+      const mimeType = getAudioMimeType()
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      chunksRef.current = []
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.onstop = () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        audioCtxRef.current?.close().catch(() => {})
+        transcribeAudio(new Blob(chunksRef.current, { type: mimeType || 'audio/webm' }))
+      }
+
+      recorder.start(100)
+      recorderRef.current = recorder
+      startTimeRef.current = Date.now()
+      hasSpokenRef.current = false
+      silenceStartRef.current = null
+      setPhase('listening')
+
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const detectVAD = () => {
+        analyser.getByteFrequencyData(data)
+        const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length)
+        setAudioLevel(Math.min(100, (rms / 60) * 100))
+
+        const elapsed = Date.now() - startTimeRef.current
+
+        if (rms > SILENCE_THRESHOLD) {
+          hasSpokenRef.current = true
+          silenceStartRef.current = null
+          setSilenceProgress(0)
+        } else if (hasSpokenRef.current && elapsed > MIN_BEFORE_VAD) {
+          if (!silenceStartRef.current) silenceStartRef.current = Date.now()
+          const prog = Math.min(1, (Date.now() - silenceStartRef.current) / SILENCE_DURATION)
+          setSilenceProgress(prog)
+          if (prog >= 1) {
+            frameRef.current = null
+            setPhase('transcribing')
+            recorderRef.current?.stop()
+            return
+          }
+        }
+        frameRef.current = requestAnimationFrame(detectVAD)
+      }
+      frameRef.current = requestAnimationFrame(detectVAD)
+    } catch {
+      setPhase('waiting')
+    }
+  }
+
+  async function transcribeAudio(blob: Blob) {
+    try {
+      const fd = new FormData()
+      fd.append('audio', blob, 'recording.webm')
+      const res = await fetch('/api/voice/transcribe', { method: 'POST', body: fd })
+      const json = await res.json()
+      onTranscribed(res.ok ? (json.data.text ?? '') : '')
+    } catch {
+      onTranscribed('')
+    } finally {
+      setPhase('waiting')
+    }
+  }
+
+  const RADIUS = 38
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS
+
+  return (
+    <div className="flex flex-col items-center gap-2 py-4">
+      <div className="relative flex items-center justify-center">
+        <svg className="absolute w-24 h-24 -rotate-90" viewBox="0 0 96 96">
+          <circle cx="48" cy="48" r={RADIUS} fill="none" stroke="#e5e7eb" strokeWidth="3" />
+          {phase === 'listening' && silenceProgress > 0 && (
+            <circle
+              cx="48" cy="48" r={RADIUS}
+              fill="none" stroke="#3b82f6" strokeWidth="3"
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={CIRCUMFERENCE * (1 - silenceProgress)}
+              strokeLinecap="round"
+              opacity={0.7}
+            />
+          )}
+        </svg>
+        <div
+          className={`w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-200 ${
+            phase === 'listening'
+              ? 'border-blue-500 bg-blue-50'
+              : phase === 'transcribing'
+              ? 'border-yellow-400 bg-yellow-50'
+              : 'border-gray-200 bg-gray-50'
+          }`}
+          style={{
+            boxShadow:
+              phase === 'listening' && audioLevel > 15
+                ? `0 0 ${Math.round(audioLevel * 0.4)}px ${Math.round(audioLevel * 0.15)}px rgba(59,130,246,0.4)`
+                : 'none',
+          }}
+        >
+          {phase === 'transcribing' ? (
+            <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
+          ) : (
+            <Mic className={`w-8 h-8 ${phase === 'listening' ? 'text-blue-500' : 'text-gray-300'}`} />
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 min-h-[1rem]">
+        {phase === 'waiting'
+          ? 'Botの返答を待っています...'
+          : phase === 'transcribing'
+          ? '文字起こし中...'
+          : hasSpokenRef.current
+          ? '沈黙検出中...'
+          : '話しかけてください'}
+      </p>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────
+// メインコンポーネント
+// ────────────────────────────────────────────
 
 export default function InterviewBot({
   onArticleGenerated,
@@ -32,45 +230,67 @@ export default function InterviewBot({
   const [ttsEnabled, setTtsEnabled] = useState(true)
   const [started, setStarted] = useState((initialMessages ?? []).length > 0)
   const [finished, setFinished] = useState(initialFinished)
-  const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
-  const seedSentRef = useRef(false)
+  const [handsFreeMode, setHandsFreeMode] = useState(false)
+  const [autoListening, setAutoListening] = useState(false)
   const [audioState, setAudioState] = useState<AudioState>('idle')
   const [playbackRate, setPlaybackRate] = useState(1.0)
+
+  const isFirstMessageRef = useRef((initialMessages ?? []).length === 0)
+  const seedSentRef = useRef(false)
+  const prevAudioStateRef = useRef<AudioState>('idle')
+  const handsFreeRef = useRef(false)
+  const ttsEnabledRef = useRef(true)
+  const finishedRef = useRef(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const mediaSourceRef = useRef<MediaSource | null>(null)
   const playbackRateRef = useRef(1.0)
 
+  useEffect(() => { handsFreeRef.current = handsFreeMode }, [handsFreeMode])
+  useEffect(() => { ttsEnabledRef.current = ttsEnabled }, [ttsEnabled])
+  useEffect(() => { finishedRef.current = finished }, [finished])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // playbackRate 変更時に再生中の音声にも即時反映
   useEffect(() => {
     playbackRateRef.current = playbackRate
-    if (audioRef.current) {
-      audioRef.current.playbackRate = playbackRate
-    }
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate
   }, [playbackRate])
 
-  // アンマウント時のクリーンアップ
   useEffect(() => {
-    return () => {
-      stopAudio()
-    }
+    return () => stopAudio()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 企画提案からのseedを自動送信
+  // TTS終了 → ハンズフリーのマイクON
+  useEffect(() => {
+    const prev = prevAudioStateRef.current
+    prevAudioStateRef.current = audioState
+    if (
+      handsFreeRef.current &&
+      !finishedRef.current &&
+      prev === 'playing' &&
+      audioState === 'idle'
+    ) {
+      const t = setTimeout(() => setAutoListening(true), 600)
+      return () => clearTimeout(t)
+    }
+  }, [audioState])
+
+  // ストリーミング開始時はマイクOFF
+  useEffect(() => {
+    if (streaming) setAutoListening(false)
+  }, [streaming])
+
+  // seedメッセージの自動送信
   useEffect(() => {
     if (seedMessage && !seedSentRef.current && conversationId && !started) {
       seedSentRef.current = true
       setInput(seedMessage)
-      // 少し待ってからスタート画面をスキップして送信
-      setTimeout(() => {
-        setStarted(true)
-      }, 100)
+      setTimeout(() => setStarted(true), 100)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedMessage, conversationId])
@@ -101,10 +321,8 @@ export default function InterviewBot({
 
   const playTts = useCallback(async (text: string) => {
     if (!ttsEnabled) return
-
     stopAudio()
     setAudioState('loading')
-
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -112,16 +330,9 @@ export default function InterviewBot({
         body: JSON.stringify({ text, speed: playbackRateRef.current }),
       })
       if (!res.ok || !res.body) { setAudioState('idle'); return }
-
-      const supportsMediaSource =
-        typeof MediaSource !== 'undefined' &&
-        MediaSource.isTypeSupported('audio/mpeg')
-
-      if (supportsMediaSource) {
-        await playWithMediaSource(res)
-      } else {
-        await playWithBlob(res)
-      }
+      const supportsMediaSource = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')
+      if (supportsMediaSource) await playWithMediaSource(res)
+      else await playWithBlob(res)
     } catch {
       setAudioState('idle')
     }
@@ -148,7 +359,6 @@ export default function InterviewBot({
       try {
         sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg')
       } catch {
-        // フォールバック
         mediaSource.endOfStream()
         return
       }
@@ -160,7 +370,6 @@ export default function InterviewBot({
               sourceBuffer.addEventListener('updateend', doAppend, { once: true })
               return
             }
-            // slice() で ArrayBuffer を確定させて型エラー回避
             sourceBuffer.appendBuffer(chunk.slice())
             sourceBuffer.addEventListener('updateend', () => resolve(), { once: true })
           }
@@ -184,17 +393,13 @@ export default function InterviewBot({
             break
           }
           await enqueue(value)
-          // 最初のチャンクが入ったら再生開始
           if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA && audio.paused && audioState !== 'paused') {
             audio.play().catch(() => {})
           }
         }
-      } catch {
-        /* stream abort は無視 */
-      }
+      } catch { /* stream abort */ }
     }, { once: true })
 
-    // sourceopen を待たずに play() — ブラウザが準備でき次第開始
     audio.play().catch(() => {})
   }
 
@@ -236,12 +441,11 @@ export default function InterviewBot({
         ])
       }
 
-      if (assistantText.includes(FINISH_KEYWORD)) setFinished(true)
+      const isFinishing = assistantText.includes(FINISH_KEYWORD)
+      if (isFinishing) setFinished(true)
 
-      // DB に保存
       if (conversationId) {
         const messagesToSave: { role: string; content: string }[] = []
-        // history が空 = 最初のBotメッセージ（ユーザー発言なし）
         if (history.length > 0) {
           const lastUser = history[history.length - 1]
           const isFirst = isFirstMessageRef.current
@@ -264,6 +468,11 @@ export default function InterviewBot({
       }
 
       playTts(assistantText)
+
+      // TTS無効時はストリーミング完了直後にマイクON
+      if (handsFreeRef.current && !ttsEnabledRef.current && !isFinishing) {
+        setTimeout(() => setAutoListening(true), 600)
+      }
     } catch {
       setMessages((prev) => [
         ...prev.slice(0, -1),
@@ -286,6 +495,25 @@ export default function InterviewBot({
     setMessages(nextMessages)
     setInput('')
     await askBot(nextMessages)
+  }
+
+  function handleHandsFreeTranscribed(text: string) {
+    setAutoListening(false)
+    if (text.trim()) {
+      sendAnswer(text)
+    }
+    // 空文字の場合はBotの次の返答後に再度リスニングを試みる
+  }
+
+  function toggleHandsFreeMode() {
+    const next = !handsFreeMode
+    setHandsFreeMode(next)
+    if (!next) {
+      setAutoListening(false)
+    } else if (audioState === 'idle' && !streaming && started && !finished) {
+      // ハンズフリーON時にBotがすでに待機中なら即座にマイクON
+      setTimeout(() => setAutoListening(true), 400)
+    }
   }
 
   async function generateArticle() {
@@ -365,7 +593,7 @@ export default function InterviewBot({
         <div ref={bottomRef} />
       </div>
 
-      {/* 記事生成ボタン（インタビュー完了後） */}
+      {/* 記事生成ボタン */}
       {finished && (
         <div className="px-4 pb-2">
           <button
@@ -382,71 +610,93 @@ export default function InterviewBot({
         </div>
       )}
 
-      {/* 入力エリア（完了後も会話を続けられる） */}
+      {/* 入力エリア */}
       <div className="border-t border-gray-200 bg-white px-4 pt-2 pb-3 space-y-2">
-          {/* TTS コントロール行 */}
-          <div className="flex items-center gap-2">
-            {/* 音声ON/OFF */}
-            <button
-              onClick={() => { setTtsEnabled((v) => !v); if (!ttsEnabled) stopAudio() }}
-              className="p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
-              title={ttsEnabled ? '音声をオフ' : '音声をオン'}
-            >
-              {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
+        {/* コントロール行 */}
+        <div className="flex items-center gap-2">
+          {/* TTS ON/OFF */}
+          <button
+            onClick={() => { setTtsEnabled((v) => !v); if (!ttsEnabled) stopAudio() }}
+            className="p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
+            title={ttsEnabled ? '音声をオフ' : '音声をオン'}
+          >
+            {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
 
-            {/* 再生中: 一時停止 / 再開 / 停止ボタン */}
-            {ttsEnabled && isAudioActive && (
-              <>
+          {/* 再生コントロール */}
+          {ttsEnabled && isAudioActive && (
+            <>
+              <button
+                onClick={togglePause}
+                disabled={audioState === 'loading'}
+                className="p-1.5 text-blue-600 hover:text-blue-800 disabled:opacity-40 transition-colors"
+                title={audioState === 'paused' ? '再開' : '一時停止'}
+              >
+                {audioState === 'loading' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : audioState === 'paused' ? (
+                  <Play className="w-4 h-4" />
+                ) : (
+                  <Pause className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                onClick={stopAudio}
+                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                title="停止"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-gray-400 mr-1">
+                {audioState === 'loading' ? '生成中...' : audioState === 'paused' ? '一時停止中' : '再生中'}
+              </span>
+            </>
+          )}
+
+          {/* ハンズフリートグル */}
+          <button
+            onClick={toggleHandsFreeMode}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+              handsFreeMode
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600'
+            }`}
+            title="ハンズフリーモード：BotのTTS終了後に自動でマイクON→沈黙検出で自動送信"
+          >
+            <Mic className="w-3.5 h-3.5" />
+            ハンズフリー
+          </button>
+
+          {/* 再生速度 */}
+          {ttsEnabled && (
+            <div className="flex items-center gap-1 ml-auto">
+              <span className="text-xs text-gray-400 mr-0.5">速度</span>
+              {SPEED_OPTIONS.map((rate) => (
                 <button
-                  onClick={togglePause}
-                  disabled={audioState === 'loading'}
-                  className="p-1.5 text-blue-600 hover:text-blue-800 disabled:opacity-40 transition-colors"
-                  title={audioState === 'paused' ? '再開' : '一時停止'}
+                  key={rate}
+                  onClick={() => setPlaybackRate(rate)}
+                  className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
+                    playbackRate === rate
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
                 >
-                  {audioState === 'loading' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : audioState === 'paused' ? (
-                    <Play className="w-4 h-4" />
-                  ) : (
-                    <Pause className="w-4 h-4" />
-                  )}
+                  {rate}x
                 </button>
-                <button
-                  onClick={stopAudio}
-                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                  title="停止"
-                >
-                  <Square className="w-4 h-4" />
-                </button>
-                <span className="text-xs text-gray-400 mr-1">
-                  {audioState === 'loading' ? '生成中...' : audioState === 'paused' ? '一時停止中' : '再生中'}
-                </span>
-              </>
-            )}
+              ))}
+            </div>
+          )}
+        </div>
 
-            {/* スピード調整（TTS有効時のみ） */}
-            {ttsEnabled && (
-              <div className="flex items-center gap-1 ml-auto">
-                <span className="text-xs text-gray-400 mr-0.5">速度</span>
-                {SPEED_OPTIONS.map((rate) => (
-                  <button
-                    key={rate}
-                    onClick={() => setPlaybackRate(rate)}
-                    className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
-                      playbackRate === rate
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {rate}x
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* テキスト入力行 */}
+        {/* ハンズフリーモード：大きなマイクUI */}
+        {handsFreeMode ? (
+          <HandsFreeRecorder
+            active={autoListening && !streaming}
+            disabled={streaming || finished}
+            onTranscribed={handleHandsFreeTranscribed}
+          />
+        ) : (
+          /* 通常モード：テキスト入力 */
           <div className="flex items-end gap-2">
             <VoiceRecorder
               onTranscribed={(text) => setInput((prev) => prev + text)}
@@ -475,7 +725,8 @@ export default function InterviewBot({
               <Send className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        )}
+      </div>
     </div>
   )
 }
